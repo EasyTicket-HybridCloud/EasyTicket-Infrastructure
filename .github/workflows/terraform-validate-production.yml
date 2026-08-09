@@ -1,0 +1,43 @@
+name: Terraform validate production
+
+on:
+  pull_request:
+    paths: &terraform_paths
+      - 'terraform/environments/production/**/*.tf'
+      - 'terraform/environments/production/**/*.tfvars'
+      - 'terraform/modules/**/*.tf'
+      - '.github/workflows/terraform-validate-production.yml'
+    branches: &branches
+      - main
+      - develop
+
+  push:
+    paths: *terraform_paths
+    branches: *branches
+  
+jobs:
+  terraform-validate:
+    runs-on: ubuntu-latest
+
+    env:
+      TERRAFORM_FOLDER: terraform
+      TERRAFORM_WORKSPACE: terraform/environments/production
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        
+      - name: Terraform fmt
+        working-directory: ${{ env.TERRAFORM_FOLDER }}
+        run: terraform fmt -check -recursive
+
+      - name: Terraform init
+        working-directory: ${{ env.TERRAFORM_WORKSPACE }}
+        run: terraform init
+
+      - name: Terraform validate
+        working-directory: ${{ env.TERRAFORM_WORKSPACE }}
+        run: terraform validate
