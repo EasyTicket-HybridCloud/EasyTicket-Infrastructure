@@ -751,6 +751,102 @@ State phải có cơ chế locking nếu backend hỗ trợ.
 
 ---
 
+## 15.1 Backend Pattern trong repo này
+
+Backend sử dụng **S3** với **partial configuration**, được tách thành 2 file trong mỗi environment:
+
+```text
+environments/<env>/
+├── backend.tf     # commit vào Git — chỉ khai báo loại backend
+└── backend.hcl    # KHÔNG commit (đã có trong .gitignore) — chứa config thật
+```
+
+Lý do tách làm 2 file:
+
+* `backend.tf` giống nhau ở mọi environment → không hard-code bucket/key/region trong code được review công khai.
+* `backend.hcl` chứa giá trị cụ thể (bucket, key, region) của từng environment và **không được đưa lên Git** (đã khai báo trong `.gitignore` ở root: pattern `backend.hcl`).
+* Mỗi engineer/CI tự tạo `backend.hcl` cục bộ (copy từ mẫu bên dưới, hoặc lấy từ secret store/CI variable) trước khi `terraform init`.
+
+### Form mẫu — `backend.tf` (commit vào Git)
+
+```hcl
+terraform {
+  backend "s3" {}
+}
+```
+
+Không thêm bất kỳ giá trị nào (bucket, key, region, …) trực tiếp vào file này.
+
+### Form mẫu — `backend.hcl` (KHÔNG commit)
+
+```hcl
+bucket       = "<project>-terraform-state"
+key          = "state/<environment>/terraform.tfstate"
+region       = "<aws-region>"
+encrypt      = true
+use_lockfile = true
+```
+
+| Field          | Ý nghĩa                                                                                                     |
+| -------------- | ------------------------------------------------------------------------------------------------------------ |
+| `bucket`       | S3 bucket lưu state, dùng chung cho mọi environment.                                                          |
+| `key`          | Path riêng cho từng environment, theo format `state/<environment>/terraform.tfstate` để state không đè lên nhau. |
+| `region`       | Region của S3 bucket.                                                                                         |
+| `encrypt`      | Bật server-side encryption cho state file. Luôn để `true`.                                                    |
+| `use_lockfile` | Bật S3 native locking (Terraform `>= 1.10`) để tránh 2 người `apply` cùng lúc — không cần DynamoDB table.       |
+
+Ví dụ cho từng environment (chỉ khác `key`):
+
+```hcl
+# environments/dev/backend.hcl
+bucket       = "easyticket-terraform-state"
+key          = "state/dev/terraform.tfstate"
+region       = "ap-southeast-1"
+encrypt      = true
+use_lockfile = true
+```
+
+```hcl
+# environments/staging/backend.hcl
+bucket       = "easyticket-terraform-state"
+key          = "state/staging/terraform.tfstate"
+region       = "ap-southeast-1"
+encrypt      = true
+use_lockfile = true
+```
+
+```hcl
+# environments/production/backend.hcl
+bucket       = "easyticket-terraform-state"
+key          = "state/production/terraform.tfstate"
+region       = "ap-southeast-1"
+encrypt      = true
+use_lockfile = true
+```
+
+### Cách init với backend.hcl
+
+Vì `backend.tf` không chứa config, phải truyền `backend.hcl` khi init:
+
+```bash
+cd environments/dev
+
+terraform init -backend-config=backend.hcl
+```
+
+CI/CD nên chạy đúng lệnh này cho từng environment tương ứng (dùng biến/secret để sinh `backend.hcl` nếu cần).
+
+### Checklist khi làm việc với backend
+
+* [ ] Không bao giờ commit `backend.hcl`.
+* [ ] Không hard-code `bucket`/`key`/`region` vào `backend.tf`.
+* [ ] Mỗi environment phải có `key` riêng biệt trong `backend.hcl`.
+* [ ] Khi thêm environment mới, tạo `backend.tf` giống mẫu và một `backend.hcl` riêng với `key` mới — không tái sử dụng `key` của environment khác.
+* [ ] Nếu thay đổi bucket/region của backend đã tồn tại, chạy `terraform init -reconfigure` hoặc `-migrate-state`, và báo trước cho team vì thao tác này ảnh hưởng đến toàn bộ state.
+* [ ] S3 bucket chứa state nên bật **versioning** và **block public access**.
+
+---
+
 # 16. Secrets
 
 Không commit secret vào repository.

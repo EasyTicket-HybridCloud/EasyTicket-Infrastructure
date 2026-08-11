@@ -16,7 +16,7 @@ on:
     branches: *branches
   
 jobs:
-  terraform-validate:
+  terraform-validate-production:
     runs-on: ubuntu-latest
 
     env:
@@ -36,7 +36,7 @@ jobs:
 
       - name: Terraform init
         working-directory: ${{ env.TERRAFORM_WORKSPACE }}
-        run: terraform init
+        run: terraform init -backend=false
 
       - name: Terraform validate
         working-directory: ${{ env.TERRAFORM_WORKSPACE }}
